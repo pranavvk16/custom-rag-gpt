@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 
 type Message = {
     role: 'user' | 'assistant'
@@ -12,6 +12,7 @@ export default function Home() {
     const [messages, setMessages] = useState<Message[]>([])
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
+    const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const messagesContainerRef = useRef<HTMLDivElement>(null)
 
     const scrollToBottom = useCallback(() => {
@@ -65,12 +66,50 @@ export default function Home() {
         }
     }
 
+    const handleTest = async () => {
+        if (testStatus === 'loading') return;
+        setTestStatus('loading');
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ messages: [{ role: 'user', content: 'test integration' }] }),
+            });
+            const content = await response.text();
+            const newStatus = content.length > 5 ? 'success' : 'error';
+            setTestStatus(newStatus);
+            setTimeout(() => setTestStatus('idle'), newStatus === 'success' ? 3000 : 5000);
+        } catch {
+            setTestStatus('error');
+            setTimeout(() => setTestStatus('idle'), 5000);
+        }
+    };
+
+
     return (
         <div className="min-h-screen bg-background text-foreground flex flex-col">
-            <header className="border-b p-4">
+            <header className="border-b p-4 flex justify-between items-center">
                 <h1 className="text-2xl font-bold flex items-center gap-2">
                     AI Help Desk Prototype
                 </h1>
+                <button
+                    onClick={handleTest}
+                    disabled={testStatus === 'loading'}
+                    className="text-lg bg-green-500 hover:bg-green-600 border border-green-600 px-6 py-3 rounded-lg font-semibold flex items-center gap-2 text-white shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {testStatus === 'loading' && (
+                        <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                    )}
+                    {testStatus === 'success' && (
+                        <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+                    )}
+                    {testStatus === 'error' && (
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                    )}
+                    Test AI
+                </button>
             </header>
             <main className="flex-1 flex flex-col">
                 <div ref={messagesContainerRef} className="flex-1 p-8 space-y-4 overflow-y-auto">

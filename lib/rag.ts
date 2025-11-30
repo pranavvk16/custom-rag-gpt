@@ -1,8 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { supabaseServer } from "./supabase";
-type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
+import { mockKB } from "./mock-kb";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 interface DocumentMatch {
   id: string;
@@ -11,28 +9,36 @@ interface DocumentMatch {
   similarity: number;
 }
 
-export async function getEmbedding(text: string): Promise<number[]> {
-  const model = genAI.getGenerativeModel({ model: "models/embedding-001" });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
+function wordOverlapSimilarity(query: string, content: string): number {
+  const queryWords = query
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2);
+  const contentWords = content
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2);
+  const intersection = queryWords.filter((word) => contentWords.includes(word));
+  return (
+    intersection.length / Math.max(queryWords.length, contentWords.length || 1)
+  );
 }
 
 export async function searchDocuments(
   query: string,
   k: number = 3,
-  threshold: number = 0.78
+  threshold: number = 0.2
 ): Promise<DocumentMatch[]> {
-  const queryEmbedding = await getEmbedding(query);
+  const matches = mockKB
+    .map((doc) => ({
+      id: "", // mock id
+      content: doc.content,
+      metadata: doc.metadata,
+      similarity: wordOverlapSimilarity(query, doc.content),
+    }))
+    .filter((match) => match.similarity >= threshold)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, k);
 
-  const { data, error } = await supabaseServer.rpc("match_documents", {
-    query_embedding: queryEmbedding,
-    match_threshold: threshold,
-    match_count: k,
-  });
-
-  if (error) {
-    throw new Error(`Supabase RPC error: ${error.message}`);
-  }
-
-  return data || [];
+  return matches;
 }
