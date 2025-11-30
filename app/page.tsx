@@ -10,40 +10,26 @@ import {
     Plus,
     MessageSquare,
     UserRound,
-    Bot
+    Bot,
+    Pin,
+    PinOff,
+    Trash2,
+    BookOpen,
+    X
 } from 'lucide-react'
+import { useLocalStorage } from '@/lib/hooks/useLocalStorage'
 
 type Message = {
     role: 'user' | 'assistant'
     content: string
 }
 
-const starterPrompts = [
-    {
-        title: "Docker Container Initialization Errors",
-        body: "Docker Container Initialization Errors"
-    },
-    {
-        title: "VM Instance Crash Recovery",
-        body: "VM Instance Crash Recovery"
-    },
-    {
-        title: "Resolving Authentication Loop Failures",
-        body: "Resolving Authentication Loop Failures"
-    },
-    {
-        title: "Password Management",
-        body: "Password Management"
-    },
-    {
-        title: "Logging Policy - Access Denied",
-        body: "Logging Policy - Access Denied"
-    },
-    {
-        title: "Network Connectivity Troubleshooting",
-        body: "Network Connectivity Troubleshooting"
-    }
-]
+type RecentQuestion = {
+    id: string
+    text: string
+    timestamp: number
+    pinned: boolean
+}
 
 export default function Home() {
     const [messages, setMessages] = useState<Message[]>([])
@@ -52,6 +38,24 @@ export default function Home() {
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
     const messagesContainerRef = useRef<HTMLDivElement>(null)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+    const [recentQuestions, setRecentQuestions] = useLocalStorage<RecentQuestion[]>('recent-questions', [])
+    const [showQuickGuide, setShowQuickGuide] = useState(true)
+
+    const starterPrompts = [
+        {
+            title: "VM Instance Crash Recovery",
+            category: "Infrastructure"
+        },
+        {
+            title: "Resolving Authentication Loop Failures",
+            category: "Authentication"
+        },
+        {
+            title: "Docker Container Initialization Errors",
+            category: "Containers"
+        }
+    ]
 
     const scrollToBottom = useCallback(() => {
         messagesContainerRef.current?.scrollTo({
@@ -64,6 +68,32 @@ export default function Home() {
         scrollToBottom()
     }, [messages, scrollToBottom])
 
+    const addToRecents = (text: string) => {
+        const newQuestion: RecentQuestion = {
+            id: Date.now().toString(),
+            text,
+            timestamp: Date.now(),
+            pinned: false
+        }
+        // Avoid duplicates and keep only last 20
+        setRecentQuestions((prev) => {
+            const filtered = prev.filter(q => q.text !== text)
+            return [newQuestion, ...filtered].slice(0, 20)
+        })
+    }
+
+    const togglePin = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation()
+        setRecentQuestions((prev) => prev.map(q =>
+            q.id === id ? { ...q, pinned: !q.pinned } : q
+        ))
+    }
+
+    const deleteRecent = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation()
+        setRecentQuestions((prev) => prev.filter(q => q.id !== id))
+    }
+
     const handleSubmit = async (e?: FormEvent | KeyboardEvent) => {
         e?.preventDefault()
         if (!input.trim() || isLoading) return
@@ -71,6 +101,7 @@ export default function Home() {
         const userMessage: Message = { role: 'user', content: input }
         const newMessages = [...messages, userMessage]
         setMessages(newMessages)
+        addToRecents(input)
         setInput('')
         setIsLoading(true)
 
@@ -152,6 +183,9 @@ export default function Home() {
         textareaRef.current?.focus()
     }
 
+    const pinnedQuestions = recentQuestions.filter(q => q.pinned)
+    const unpinnedQuestions = recentQuestions.filter(q => !q.pinned)
+
     return (
         <div className="flex min-h-screen bg-[#0B0F16] text-gray-100">
             <aside className="hidden md:flex w-72 flex-col border-r border-white/10 bg-[#0F1320]">
@@ -170,35 +204,45 @@ export default function Home() {
                         New chat
                     </button>
                 </div>
-                <div className="px-4 pb-4 space-y-6 overflow-y-auto">
-                    <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 mb-2">Pinned</p>
-                        <div className="space-y-2">
-                            <button className="w-full flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-200 hover:bg-white/10 transition-colors">
-                                <MessageSquare className="w-4 h-4 text-emerald-300" />
-                                RAG integration notes
-                            </button>
-                            <button className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
-                                <MessageSquare className="w-4 h-4 text-emerald-300" />
-                                Guardrail policies
-                            </button>
+                <div className="px-4 pb-4 space-y-6 overflow-y-auto flex-1">
+                    {pinnedQuestions.length > 0 && (
+                        <div>
+                            <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 mb-2">Pinned</p>
+                            <div className="space-y-2">
+                                {pinnedQuestions.map(q => (
+                                    <div key={q.id} className="group relative w-full flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-200 hover:bg-white/10 transition-colors cursor-pointer" onClick={() => prefillPrompt(q.text)}>
+                                        <MessageSquare className="w-4 h-4 text-emerald-300 shrink-0" />
+                                        <span className="truncate flex-1">{q.text}</span>
+                                        <button onClick={(e) => togglePin(q.id, e)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-white transition-opacity">
+                                            <PinOff className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
+
                     <div>
                         <p className="text-[11px] uppercase tracking-[0.12em] text-gray-400 mb-2">Recents</p>
                         <div className="space-y-2">
-                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
-                                <MessageSquare className="w-4 h-4 text-gray-400" />
-                                VM crash timeline
-                            </div>
-                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
-                                <MessageSquare className="w-4 h-4 text-gray-400" />
-                                Gemini prompt sanity
-                            </div>
-                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
-                                <MessageSquare className="w-4 h-4 text-gray-400" />
-                                Disable logging refusal
-                            </div>
+                            {unpinnedQuestions.length === 0 ? (
+                                <p className="text-xs text-gray-500 italic px-2">No recent questions</p>
+                            ) : (
+                                unpinnedQuestions.map(q => (
+                                    <div key={q.id} className="group relative w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors cursor-pointer" onClick={() => prefillPrompt(q.text)}>
+                                        <MessageSquare className="w-4 h-4 text-gray-400 shrink-0" />
+                                        <span className="truncate flex-1">{q.text}</span>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={(e) => togglePin(q.id, e)} className="p-1 hover:text-white">
+                                                <Pin className="w-3 h-3" />
+                                            </button>
+                                            <button onClick={(e) => deleteRecent(q.id, e)} className="p-1 hover:text-red-400">
+                                                <Trash2 className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>
@@ -240,27 +284,57 @@ export default function Home() {
                 </header>
 
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-10 py-8">
+                    {showQuickGuide && messages.length === 0 && (
+                        <div className="mx-auto max-w-3xl mb-8 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 relative">
+                            <button
+                                onClick={() => setShowQuickGuide(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                            <div className="flex items-start gap-4">
+                                <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-300">
+                                    <BookOpen className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-emerald-100 mb-2">Quick Guide</h3>
+                                    <ul className="space-y-2 text-sm text-gray-300">
+                                        <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                            Ask questions about your infrastructure, logs, or policies.
+                                        </li>
+                                        <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                            Your recent questions are saved automatically in the sidebar.
+                                        </li>
+                                        <li className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                            Pin important questions to keep them at the top.
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {messages.length === 0 ? (
-                        <div className="mx-auto max-w-3xl text-center space-y-8 pt-10">
+                        <div className="mx-auto max-w-3xl text-center space-y-8 pt-4">
                             <div>
                                 <p className="text-3xl font-semibold">What can I help you debug?</p>
                                 <p className="mt-2 text-gray-400">Ask about auth loops, VM crashes, or security guardrails.</p>
                             </div>
-                            <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                 {starterPrompts.map((prompt) => (
                                     <button
                                         key={prompt.title}
-                                        onClick={() => prefillPrompt(prompt.body)}
+                                        onClick={() => prefillPrompt(prompt.title)}
                                         className="group rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:border-emerald-400/50 hover:bg-white/10 transition-colors"
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2 text-sm font-semibold">
-                                                <Sparkles className="h-4 w-4 text-emerald-300" />
-                                                {prompt.title}
-                                            </div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-medium text-emerald-400/80 uppercase tracking-wider">{prompt.category}</span>
                                             <Send className="h-4 w-4 text-gray-500 group-hover:text-emerald-300" />
                                         </div>
-                                        <p className="mt-2 text-sm text-gray-300 leading-relaxed">{prompt.body}</p>
+                                        <p className="text-sm font-medium text-gray-200 leading-relaxed">{prompt.title}</p>
                                     </button>
                                 ))}
                             </div>
@@ -325,18 +399,6 @@ export default function Home() {
                                 </button>
                             </div>
                             <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 pb-4 text-xs text-gray-400">
-                                <div className="flex flex-wrap gap-2">
-                                    {starterPrompts.slice(0, 3).map((prompt) => (
-                                        <button
-                                            key={prompt.title}
-                                            type="button"
-                                            onClick={() => prefillPrompt(prompt.body)}
-                                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium hover:border-emerald-400/50 hover:text-white transition-colors"
-                                        >
-                                            {prompt.title}
-                                        </button>
-                                    ))}
-                                </div>
                                 <span className="text-gray-500">Gemini 2.5 · RAG context · Guardrails on</span>
                             </div>
                         </div>
