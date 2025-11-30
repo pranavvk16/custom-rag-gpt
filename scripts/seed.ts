@@ -13,7 +13,7 @@ async function main() {
 
   for (const doc of mockKB) {
     try {
-      const embedding = new Array(768).fill(0);
+      const embedding = await getEmbedding(doc.content);
 
       const { error } = await supabaseServer.from("documents").upsert({
         content: doc.content,
@@ -23,15 +23,13 @@ async function main() {
 
       if (error) throw error;
 
-      console.log(
-        `✅ Upserted: ${doc.metadata.title} (${embedding.length} dims)`
-      );
+      console.log(`Upserted: ${doc.metadata.title} (${embedding.length} dims)`);
     } catch (err) {
-      console.error(`❌ Error seeding ${doc.metadata.title}:`, err);
+      console.error(`Error seeding ${doc.metadata.title}:`, err);
     }
   }
 
-  console.log("🌱 Seeding complete! Check Supabase > documents table.");
+  console.log("Seeding complete! Check Supabase > documents table.");
 }
 
 main().catch(console.error);

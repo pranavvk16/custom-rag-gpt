@@ -1,4 +1,5 @@
-import { mockKB } from "./mock-kb";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { supabaseServer } from "./supabase";
 
 type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
@@ -9,36 +10,36 @@ interface DocumentMatch {
   similarity: number;
 }
 
-function wordOverlapSimilarity(query: string, content: string): number {
-  const queryWords = query
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 2);
-  const contentWords = content
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 2);
-  const intersection = queryWords.filter((word) => contentWords.includes(word));
-  return (
-    intersection.length / Math.max(queryWords.length, contentWords.length || 1)
-  );
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+
+export async function getEmbedding(text: string): Promise<number[]> {
+  const res = await embeddingModel.embedContent(text);
+  return res.embedding.values;
 }
 
 export async function searchDocuments(
   query: string,
   k: number = 3,
-  threshold: number = 0.2
+  threshold: number = 0.78
 ): Promise<DocumentMatch[]> {
-  const matches = mockKB
-    .map((doc) => ({
-      id: "", // mock id
-      content: doc.content,
-      metadata: doc.metadata,
-      similarity: wordOverlapSimilarity(query, doc.content),
-    }))
-    .filter((match) => match.similarity >= threshold)
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, k);
+  const queryEmbedding = await getEmbedding(query);
 
-  return matches;
+  const { data, error } = await supabaseServer.rpc("match_documents", {
+    query_embedding: queryEmbedding,
+    match_threshold: threshold,
+    match_count: k,
+  });
+
+  if (error) {
+    console.error("Error querying documents:", error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    content: row.content,
+    metadata: row.metadata,
+    similarity: row.similarity,
+  }));
 }
