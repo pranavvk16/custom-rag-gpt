@@ -2,7 +2,7 @@
 
 A high-fidelity prototype of an intelligent help desk agent powered by **Retrieval-Augmented Generation (RAG)** and **Google's Gemini 2.5 Flash** model. This application simulates a Tier 1 support engineer, capable of resolving technical infrastructure issues using a strictly defined internal knowledge base.
 
-![AI Help Desk Screenshot](https://placehold.co/800x400?text=AI+Help+Desk+Screenshot)
+
 
 ## 🚀 Key Features
 
@@ -74,12 +74,6 @@ npm run dev
 
 Visit `http://localhost:3000` to chat with the agent.
 
-## 📊 Dashboard
-Visit `/dashboard` to view analytics on:
--   Total tickets
--   Deflection rate (Tier 1 vs Tier 3)
--   Average severity
--   Recent ticket logs
 
 ## 🧪 Testing
 You can run the reproduction script to test the RAG retrieval logic independently:
