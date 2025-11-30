@@ -8,8 +8,8 @@ import { getEmbedding } from "../lib/rag";
 async function main() {
   console.log("Starting KB seeding with Gemini embeddings...");
 
-  // Optional: Clear existing documents
-  // await supabaseServer.from('documents').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+  // Clear existing documents to avoid duplicates and ensure fresh embeddings
+  await supabaseServer.from('documents').delete().neq('id', '00000000-0000-0000-0000-000000000000')
 
   for (const doc of mockKB) {
     try {

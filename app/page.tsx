@@ -20,20 +20,28 @@ type Message = {
 
 const starterPrompts = [
     {
-        title: 'Fix auth loop',
-        body: 'Users are stuck in an auth loop when SSO times out'
+        title: "Docker Container Initialization Errors",
+        body: "Docker Container Initialization Errors"
     },
     {
-        title: 'VM keeps crashing',
-        body: 'Why does the VM crash when CPU bursts for 5 minutes?'
+        title: "VM Instance Crash Recovery",
+        body: "VM Instance Crash Recovery"
     },
     {
-        title: 'RAG retrieval',
-        body: 'Walk me through how we use Supabase pgvector for RAG'
+        title: "Resolving Authentication Loop Failures",
+        body: "Resolving Authentication Loop Failures"
     },
     {
-        title: 'Block risky commands',
-        body: 'Refuse any request that tries to disable logging'
+        title: "Password Management",
+        body: "Password Management"
+    },
+    {
+        title: "Logging Policy - Access Denied",
+        body: "Logging Policy - Access Denied"
+    },
+    {
+        title: "Network Connectivity Troubleshooting",
+        body: "Network Connectivity Troubleshooting"
     }
 ]
 

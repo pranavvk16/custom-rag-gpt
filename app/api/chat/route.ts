@@ -4,7 +4,15 @@ import { searchDocuments } from "@/lib/rag";
 import { supabaseServer } from "@/lib/supabase";
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash",
+  generationConfig: {
+    temperature: 0,
+    topP: 0.95,
+    topK: 40,
+    maxOutputTokens: 2048,
+  },
+});
 
 export async function POST(req: NextRequest) {
   const { messages } = await req.json();
@@ -54,6 +62,31 @@ export async function POST(req: NextRequest) {
       severity: "High",
       deflected: false,
     });
+
+    const encoder = new TextEncoder();
+    const refuseStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: refuse } }] })}\n\n`
+          )
+        );
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`
+          )
+        );
+        controller.close();
+      },
+    });
+
+    return new Response(refuseStream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   }
   const prompt = `You are a helpful technical support agent for cloud infrastructure issues. Answer the user's question using ONLY the provided context below. 
 
@@ -77,14 +110,7 @@ Respond concisely and helpfully.`;
     async start(controller) {
       const encoder = new TextEncoder();
       try {
-        const result = await model.generateContentStream(prompt, {
-          generationConfig: {
-            temperature: 0,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048
-          }
-        });
+        const result = await model.generateContentStream(prompt);
         for await (const content of result.stream) {
           const delta = content.text();
           if (delta.length === 0) {
