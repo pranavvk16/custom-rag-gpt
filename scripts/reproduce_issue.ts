@@ -14,7 +14,7 @@ async function main() {
     console.log(`Found ${docs.length} documents.`);
     
     docs.forEach((doc, i) => {
-      console.log(`[${i + 1}] Title: ${doc.metadata.title}`);
+      console.log(`[${i + 1}] Title: ${(doc.metadata as any)?.title || 'No Title'}`);
       console.log(`    Similarity: ${doc.similarity}`);
       console.log(`    ID: ${doc.id}`);
     });
