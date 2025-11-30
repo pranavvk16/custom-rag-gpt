@@ -22,6 +22,12 @@ import { useLocalStorage } from '@/lib/hooks/useLocalStorage'
 type Message = {
     role: 'user' | 'assistant'
     content: string
+    metadata?: {
+        kbReferences?: Array<{ id: string, title: string, similarity: number }>
+        confidence?: number
+        tier?: string
+        severity?: string
+    }
 }
 
 type RecentQuestion = {
@@ -40,7 +46,14 @@ export default function Home() {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     const [recentQuestions, setRecentQuestions] = useLocalStorage<RecentQuestion[]>('recent-questions', [])
+    const [sessionId, setSessionId] = useLocalStorage<string>('chat-session-id', '')
     const [showQuickGuide, setShowQuickGuide] = useState(true)
+
+    useEffect(() => {
+        if (!sessionId) {
+            setSessionId(crypto.randomUUID())
+        }
+    }, [sessionId, setSessionId])
 
     const starterPrompts = [
         {
@@ -105,47 +118,39 @@ export default function Home() {
         setInput('')
         setIsLoading(true)
 
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ messages: newMessages }),
-        })
-
-        if (!response.body) throw new Error('No response body')
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let assistantMessage: Message = { role: 'assistant', content: '' }
-        const updatedMessages = [...newMessages, assistantMessage]
-        setMessages(updatedMessages)
-
         try {
-            let buffer = ''
-            while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    messages: newMessages,
+                    sessionId: sessionId,
+                }),
+            })
 
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split('\n')
-                buffer = lines.pop() || ''
+            if (!response.ok) throw new Error('Network response was not ok')
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const dataStr = line.slice(6)
-                        if (dataStr === '[DONE]') break
-                        try {
-                            const parsed = JSON.parse(dataStr)
-                            const delta = parsed.choices?.[0]?.delta?.content || ''
-                            if (delta) {
-                                assistantMessage.content += delta
-                                setMessages([...updatedMessages.slice(0, -1), { ...assistantMessage }])
-                            }
-                        } catch { }
-                    }
+            const data = await response.json()
+
+            const assistantMessage: Message = {
+                role: 'assistant',
+                content: data.answer,
+                metadata: {
+                    kbReferences: data.kbReferences,
+                    confidence: data.confidence,
+                    tier: data.tier,
+                    severity: data.severity
                 }
             }
+
+            setMessages([...newMessages, assistantMessage])
+
+        } catch (error) {
+            console.error('Chat error:', error)
+            const errorMessage: Message = { role: 'assistant', content: 'Error. Try again.' }
+            setMessages([...newMessages, errorMessage])
         } finally {
             setIsLoading(false)
         }
@@ -350,6 +355,28 @@ export default function Home() {
                                         </div>
                                         <div className={`flex-1 rounded-2xl border px-4 sm:px-6 py-4 shadow-[0_12px_40px_rgba(0,0,0,0.25)] ${isUser ? 'border-white/10 bg-white/5' : 'border-white/5 bg-[#111522]'}`}>
                                             <p className="whitespace-pre-wrap leading-relaxed text-gray-100">{m.content}</p>
+                                            {m.metadata && (
+                                                <div className="mt-4 pt-4 border-t border-white/10 text-xs space-y-2">
+                                                    <div className="flex items-center gap-4 text-gray-400">
+                                                        <span className="flex items-center gap-1">
+                                                            <span className={`w-2 h-2 rounded-full ${m.metadata.tier === 'TIER_1' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                                                            {m.metadata.tier?.replace('_', ' ')}
+                                                        </span>
+                                                        <span>Confidence: {(m.metadata.confidence! * 100).toFixed(0)}%</span>
+                                                    </div>
+                                                    {m.metadata.kbReferences && m.metadata.kbReferences.length > 0 && (
+                                                        <div className="space-y-1">
+                                                            <p className="font-medium text-gray-500 uppercase tracking-wider text-[10px]">Sources</p>
+                                                            {m.metadata.kbReferences.map((ref, i) => (
+                                                                <div key={i} className="flex items-center gap-2 text-emerald-400/80 bg-emerald-500/5 px-2 py-1 rounded border border-emerald-500/10">
+                                                                    <BookOpen className="w-3 h-3" />
+                                                                    <span className="truncate">{ref.title}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )

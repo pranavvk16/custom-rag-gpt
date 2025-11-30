@@ -1,32 +1,20 @@
 # Deployment Documentation
 
 ## Prerequisites
-- Docker installed locally.
+- Node.js 18+ installed locally.
 - A Supabase project created.
 - A Google Cloud project with Gemini API enabled.
 
-## Environment Variables
-Create a `.env` file (or configure in your deployment platform) with the following:
+## Local Deployment
 
-```env
-# Google Gemini API Key
-GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key
-
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-```
-
-## Local Deployment (Docker)
-
-1.  **Build the Image**:
+1.  **Install Dependencies**:
     ```bash
-    docker build -t ai-helpdesk .
+    npm install
     ```
 
-2.  **Run the Container**:
+2.  **Run Development Server**:
     ```bash
-    docker run -p 3000:3000 --env-file .env ai-helpdesk
+    npm run dev
     ```
 
 3.  **Access**: Open `http://localhost:3000` in your browser.

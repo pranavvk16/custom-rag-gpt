@@ -24,12 +24,32 @@ Production: `[Your Production URL]`
 ```
 
 **Response**:
-- **Success (200)**: Server-Sent Events (SSE) stream containing the generated text.
+- **Success (200)**: JSON object containing the answer and metadata.
 - **Error (500)**: JSON object with error details.
 
+**Response Schema**:
+```json
+{
+  "answer": "Here are the steps...",
+  "kbReferences": [
+    { "id": "kb-1", "title": "Troubleshooting", "similarity": 0.85 }
+  ],
+  "confidence": 0.95,
+  "tier": "TIER_1",
+  "severity": "MEDIUM",
+  "needsEscalation": false,
+  "guardrail": {
+    "blocked": false,
+    "reason": null
+  }
+}
+```
+
 **Internal Logic**:
-- Calculates `tier` (1 if deflected/answered, 3 if not).
-- Calculates `severity` (Default: "Medium").
+- Checks **Guardrails** (keywords/patterns).
+- Performs **RAG Retrieval** from Supabase.
+- Generates answer via **Gemini 1.5 Flash**.
+- Calculates `tier` and `severity` based on content.
 - Logs ticket to Supabase.
 
 ---
@@ -44,11 +64,49 @@ Production: `[Your Production URL]`
 {
   "tierCounts": {
     "1": 15,
-    "3": 5
+    "2": 5
   },
   "deflectionRate": "75.0",
   "totalTickets": 20
 }
+```
+
+### 3. Tickets List
+**Endpoint**: `GET /api/tickets`
+
+**Description**: Retrieves a list of recent tickets.
+
+**Response Body**:
+```json
+[
+  {
+    "id": 1,
+    "session_id": "...",
+    "user_query": "...",
+    "tier": 1,
+    "severity": "MEDIUM",
+    "created_at": "..."
+  }
+]
+```
+
+### 4. Metrics Trends
+**Endpoint**: `GET /api/metrics/trends`
+
+**Description**: Retrieves daily trend data for tickets, tiers, and severity.
+
+**Response Body**:
+```json
+[
+  {
+    "date": "2023-10-27",
+    "total": 10,
+    "tier1": 8,
+    "tier2": 2,
+    "highSeverity": 0,
+    "blocked": 0
+  }
+]
 ```
 
 ## Error Patterns

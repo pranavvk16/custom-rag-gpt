@@ -1,102 +1,84 @@
 import { NextRequest } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { searchDocuments } from "@/lib/rag";
 import { supabaseServer } from "@/lib/supabase";
+import { llmProvider } from "@/lib/llm";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
-  generationConfig: {
-    temperature: 0,
-    topP: 0.95,
-    topK: 40,
-    maxOutputTokens: 2048,
-  },
-});
+// Removed direct GoogleGenerativeAI instantiation
+// const genAI = ...
+// const model = ...
 
 export async function POST(req: NextRequest) {
-  const { messages } = await req.json();
-  const currentMessageContent = messages[messages.length - 1].content;
-  
-  // Extract history (all messages except the last one)
-  const history = messages.slice(0, -1).map((m: any) => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content }],
-  }));
+  try {
+    const { messages, sessionId: reqSessionId } = await req.json();
+    const currentMessageContent = messages[messages.length - 1].content;
+    
+    // Use provided sessionId or generate new one
+    const sessionId = reqSessionId || crypto.randomUUID();
 
-  const query = currentMessageContent;
+    // Extract history (all messages except the last one)
+    const history = messages.slice(0, -1).map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      content: m.content,
+    }));
 
-  const docs = await searchDocuments(query);
-  console.log("QUERY:", query);
-  console.log(
-    "DOCS:",
-    docs.length,
-    docs.map((d: any) => ({ title: d.metadata.title, sim: d.similarity }))
-  );
-  const context = docs
-    .map((d: any, i: number) => `[${i + 1}] ${d.metadata.title}\n${d.content}`)
-    .join("\n\n");
-  console.log("CONTEXT LENGTH:", context.length);
-  // Guardrail: Block dangerous requests
-  const lowerQuery = query.toLowerCase();
-  const sessionId = crypto.randomUUID();
-  const deflected = docs.length > 0;
-  const tier = deflected ? 1 : 3;
-  const severity = "Medium";
-  await supabaseServer.from("tickets").insert({
-    session_id: sessionId,
-    user_query: query,
-    ai_response: null,
-    tier,
-    severity,
-    deflected,
-  });
-  const dangerousKeywords = [
-    "disable logging",
-    "access host",
-    "sudo",
-    "rm -rf",
-    "ignore instructions",
-    "jailbreak",
-  ];
-  if (dangerousKeywords.some((kw) => lowerQuery.includes(kw))) {
-    const refuse = "Request denied for security reasons.";
-    const sessionId = crypto.randomUUID();
-    await supabaseServer.from("tickets").insert({
-      session_id: sessionId,
-      user_query: query,
-      ai_response: refuse,
-      tier: 1,
-      severity: "High",
-      deflected: false,
-    });
+    const query = currentMessageContent;
+    const lowerQuery = query.toLowerCase();
 
-    const encoder = new TextEncoder();
-    const refuseStream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ choices: [{ delta: { content: refuse } }] })}\n\n`
-          )
-        );
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`
-          )
-        );
-        controller.close();
-      },
-    });
+    // 1. Guardrails Check
+    const dangerousKeywords = [
+      "disable logging",
+      "turn off logs",
+      "stop logging",
+      "access host",
+      "sudo",
+      "rm -rf",
+      "ignore instructions",
+      "jailbreak",
+      "reset all user environments",
+      "delete all",
+      "drop table",
+      "systemctl stop"
+    ];
 
-    return new Response(refuseStream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  }
-  const prompt = `You are a Senior Cloud Support Engineer. Your goal is to help users resolve technical infrastructure issues using ONLY the provided context.
+    const isBlocked = dangerousKeywords.some((kw) => lowerQuery.includes(kw));
+
+    if (isBlocked) {
+      const refusalResponse = {
+        answer: "Request denied for security reasons. This action is not permitted.",
+        kbReferences: [],
+        confidence: 1.0,
+        tier: "TIER_2",
+        severity: "HIGH",
+        needsEscalation: true,
+        guardrail: {
+          blocked: true,
+          reason: "Security violation detected"
+        }
+      };
+
+      // Log the blocked request
+      await supabaseServer.from("tickets").insert({
+        session_id: sessionId,
+        user_query: query,
+        ai_response: refusalResponse.answer,
+        tier: 2,
+        severity: "High",
+        deflected: false,
+        guardrail_blocked: true
+      });
+
+      return Response.json(refusalResponse);
+    }
+
+    // 2. RAG Retrieval
+    const docs = await searchDocuments(query);
+    
+    const context = docs
+      .map((d: any, i: number) => `[${i + 1}] ${d.metadata.title}\n${d.content}`)
+      .join("\n\n");
+
+    // 3. Prompt Construction
+    const prompt = `You are a Senior Cloud Support Engineer. Your goal is to help users resolve technical infrastructure issues using ONLY the provided context.
 
 CRITICAL RULES:
 1.  **Strict Context Adherence**: Answer ONLY using the information in the "Context" section below. Do not use outside knowledge or information from the internet to answer technical questions.
@@ -105,58 +87,92 @@ CRITICAL RULES:
 4.  **Adaptability**: If the user asks to "make it easier", "explain like I'm 5", or simplify, you MUST comply by using simpler language and analogies, BUT the technical facts and steps must still come strictly from the context.
 5.  **Tone**: Professional, empathetic, and authoritative.
 
-RESPONSE STRUCTURE:
-1.  **Acknowledge**: Briefly acknowledge the user's specific issue.
-2.  **Root Cause**: Explain *why* this is happening, based on the context.
-3.  **Solution**: Provide clear, numbered, step-by-step instructions. Use code blocks for commands.
-4.  **Verification**: Explain how to verify the fix.
+RESPONSE FORMAT:
+You must respond with a valid JSON object. Do not include markdown formatting (like \`\`\`json).
+{
+  "answer": "The answer text...",
+  "tier": "TIER_1" | "TIER_2",
+  "severity": "LOW" | "MEDIUM" | "HIGH",
+  "reasoning": "Brief explanation of tier/severity choice"
+}
+
+TIER/SEVERITY GUIDELINES:
+- **TIER_1 (Deflected)**: Routine issues solved by KB (e.g., "How do I login?", "Reset password").
+- **TIER_2 (Escalated)**: Complex issues, missing KB info, or high severity (e.g., "VM crashed", "Data lost", "KB doesn't help").
+- **SEVERITY**:
+  - **LOW**: Informational, cosmetic.
+  - **MEDIUM**: Functional issue but workaround exists.
+  - **HIGH**: System down, data loss, security risk, blocking workflow.
 
 Context:
 ${context}
 
 User Question: ${query}
 
-Respond according to the rules above.`;
-  console.log("PROMPT PREVIEW:", prompt.slice(0, 200) + "...");
+Respond strictly in JSON.`;
 
-  const chat = model.startChat({
-    history: history,
-  });
+    // 4. LLM Generation
+    // Using abstraction
+    const llmResult = await llmProvider.generateResponse(prompt, history);
+    const textResponse = llmResult.text;
+    
+    let parsedResponse;
+    try {
+      // Clean up potential markdown code blocks
+      const cleanJson = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+      parsedResponse = JSON.parse(cleanJson);
+    } catch (e) {
+      console.error("Failed to parse LLM JSON:", textResponse);
+      // Fallback
+      parsedResponse = {
+        answer: textResponse,
+        tier: "TIER_2", // Default to escalated on error
+        severity: "MEDIUM",
+        reasoning: "JSON parsing failed"
+      };
+    }
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      try {
-        const result = await chat.sendMessageStream(prompt);
-        for await (const content of result.stream) {
-          const delta = content.text();
-          if (delta.length === 0) {
-            continue;
-          }
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`
-            )
-          );
-        }
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`
-          )
-        );
-      } catch (e) {
-        controller.error(e);
-      } finally {
-        controller.close();
+    // 5. Metadata Calculation
+    const confidence = docs.length > 0 ? 0.95 : 0.1; 
+
+    const kbReferences = docs.map((d: any) => ({
+      id: d.id,
+      title: d.metadata.title,
+      similarity: d.similarity
+    }));
+
+    const needsEscalation = parsedResponse.tier === "TIER_2";
+
+    const responsePayload = {
+      answer: parsedResponse.answer,
+      kbReferences,
+      confidence,
+      tier: parsedResponse.tier,
+      severity: parsedResponse.severity,
+      needsEscalation,
+      guardrail: {
+        blocked: false,
+        reason: null
       }
-    },
-  });
+    };
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+    // 6. Logging
+    await supabaseServer.from("tickets").insert({
+      session_id: sessionId,
+      user_query: query,
+      ai_response: parsedResponse.answer,
+      tier: needsEscalation ? 2 : 1,
+      severity: parsedResponse.severity,
+      deflected: !needsEscalation,
+    });
+
+    return Response.json(responsePayload);
+
+  } catch (error: any) {
+    console.error("API Error:", error);
+    return Response.json(
+      { error: "Internal Server Error", details: error.message },
+      { status: 500 }
+    );
+  }
 }

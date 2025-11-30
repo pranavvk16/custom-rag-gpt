@@ -43,14 +43,14 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-const embeddingModel = genAI.getGenerativeModel({
-  model: "text-embedding-004",
-});
+import { llmProvider } from "./llm";
+
+// Removed direct GoogleGenerativeAI instantiation
+// const genAI = ...
+// const embeddingModel = ...
 
 export async function getEmbedding(text: string): Promise<number[]> {
-  const res = await embeddingModel.embedContent(text);
-  return res.embedding.values;
+  return await llmProvider.getEmbedding(text);
 }
 
 export async function searchDocuments(
